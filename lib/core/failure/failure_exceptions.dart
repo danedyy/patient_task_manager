@@ -1,4 +1,4 @@
-import 'task_status.dart';
+import '../../domain/entities/task_status.dart';
 
 /// Thrown by the repository when a requested status change is not reachable
 /// from the task's current status.

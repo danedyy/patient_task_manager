@@ -9,7 +9,7 @@ fresh:
 
 build-runner:
 	@echo "🔧 Running build_runner..."
-	fvm dart run build_runner build --delete-conflicting-outputs
+	fvm flutter pub run build_runner build
 	@echo "✅ Code generation complete!"
 
 valid-dep:

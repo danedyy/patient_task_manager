@@ -1,16 +1,12 @@
-import 'package:json_annotation/json_annotation.dart';
-
 /// Status of a patient task, shaped after the FHIR Task lifecycle.
+///
+/// A pure domain entity: no serialization concerns live here. Wire-name
+/// mapping is the data layer's job (see `PatientTaskModel`).
 enum TaskStatus {
-  @JsonValue('requested')
   requested,
-  @JsonValue('in-progress')
   inProgress,
-  @JsonValue('on-hold')
   onHold,
-  @JsonValue('completed')
   completed,
-  @JsonValue('cancelled')
   cancelled;
 
   /// Statuses this one may legally transition to. The single source of truth

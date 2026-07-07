@@ -11,7 +11,6 @@ part of 'patient_task.dart';
 
 // dart format off
 T _$identity<T>(T value) => value;
-
 /// @nodoc
 mixin _$PatientTask {
 
@@ -26,8 +25,6 @@ mixin _$PatientTask {
 @pragma('vm:prefer-inline')
 $PatientTaskCopyWith<PatientTask> get copyWith => _$PatientTaskCopyWithImpl<PatientTask>(this as PatientTask, _$identity);
 
-  /// Serializes this PatientTask to a JSON map.
-  Map<String, dynamic> toJson();
 
 
 @override
@@ -35,7 +32,7 @@ bool operator ==(Object other) {
   return identical(this, other) || (other.runtimeType == runtimeType&&other is PatientTask&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.title, title) || other.title == title)&&(identical(other.status, status) || other.status == status)&&(identical(other.priority, priority) || other.priority == priority)&&(identical(other.patientReference, patientReference) || other.patientReference == patientReference)&&(identical(other.lastModified, lastModified) || other.lastModified == lastModified)&&(identical(other.dueDate, dueDate) || other.dueDate == dueDate)&&(identical(other.assignee, assignee) || other.assignee == assignee));
 }
 
-@JsonKey(includeFromJson: false, includeToJson: false)
+
 @override
 int get hashCode => Object.hash(runtimeType,id,version,title,status,priority,patientReference,lastModified,dueDate,assignee);
 
@@ -218,11 +215,11 @@ return $default(_that.id,_that.version,_that.title,_that.status,_that.priority,_
 }
 
 /// @nodoc
-@JsonSerializable()
+
 
 class _PatientTask implements PatientTask {
   const _PatientTask({required this.id, required this.version, required this.title, required this.status, required this.priority, required this.patientReference, required this.lastModified, this.dueDate, this.assignee});
-  factory _PatientTask.fromJson(Map<String, dynamic> json) => _$PatientTaskFromJson(json);
+  
 
 @override final  String id;
 /// Server-assigned, monotonically increasing.
@@ -244,17 +241,14 @@ class _PatientTask implements PatientTask {
 @pragma('vm:prefer-inline')
 _$PatientTaskCopyWith<_PatientTask> get copyWith => __$PatientTaskCopyWithImpl<_PatientTask>(this, _$identity);
 
-@override
-Map<String, dynamic> toJson() {
-  return _$PatientTaskToJson(this, );
-}
+
 
 @override
 bool operator ==(Object other) {
   return identical(this, other) || (other.runtimeType == runtimeType&&other is _PatientTask&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.title, title) || other.title == title)&&(identical(other.status, status) || other.status == status)&&(identical(other.priority, priority) || other.priority == priority)&&(identical(other.patientReference, patientReference) || other.patientReference == patientReference)&&(identical(other.lastModified, lastModified) || other.lastModified == lastModified)&&(identical(other.dueDate, dueDate) || other.dueDate == dueDate)&&(identical(other.assignee, assignee) || other.assignee == assignee));
 }
 
-@JsonKey(includeFromJson: false, includeToJson: false)
+
 @override
 int get hashCode => Object.hash(runtimeType,id,version,title,status,priority,patientReference,lastModified,dueDate,assignee);
 

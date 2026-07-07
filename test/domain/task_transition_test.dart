@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:patient_task_manager/domain/task_status.dart';
-import 'package:patient_task_manager/domain/task_transition.dart';
+import 'package:patient_task_manager/domain/entities/task_status.dart';
+import 'package:patient_task_manager/domain/entities/task_transition.dart';
 
 void main() {
   // The transition table from the spec, restated independently of the
