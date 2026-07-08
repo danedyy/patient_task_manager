@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import '../../core/cancellation.dart';
 import '../../core/failure/failure_exceptions.dart';
 import '../../domain/entities/patient_task.dart';
 import '../../domain/entities/task_status.dart';
@@ -8,9 +9,9 @@ import 'patient_task_api.dart';
 
 /// In-memory implementation of [PatientTaskApi] backed by a seeded task table.
 ///
-/// Everything nondeterministic — failures and the push interval — is injected,
-/// so the exact same class runs fully deterministic under tests (fixed [Random]
-/// seed) and lively in the app.
+/// Everything nondeterministic failures, latency, and the push interval is
+/// injected, so the exact same class runs fully deterministic under tests
+/// (fixed [Random] seed, zero delay) and lively in the app.
 class MockPatientTaskApi implements PatientTaskApi {
   /// Server rows keyed by id; each carries its own version counter.
   final Map<String, PatientTaskModel> _tasks;
@@ -20,6 +21,11 @@ class MockPatientTaskApi implements PatientTaskApi {
   /// Probability a [fetchTasks]/[patchStatus] call fails transiently (0..1).
   final double _failureRate;
 
+  /// Simulated round-trip latency. Doubles as the in-flight window during which
+  /// a [fetchTasks] [CancellationToken] can be cancelled; [Duration.zero] still
+  /// yields an async suspension point, so cancellation is observable in tests.
+  final Duration _latency;
+
   /// How often [taskUpdates] emits a server-side change.
   final Duration _pushInterval;
 
@@ -28,6 +34,7 @@ class MockPatientTaskApi implements PatientTaskApi {
     Random? random,
     DateTime Function()? clock,
     this._failureRate = 0.15,
+    this._latency = Duration.zero,
     this._pushInterval = const Duration(seconds: 5),
   })  : _tasks = {for (final t in seed ?? _defaultSeed()) t.id: t},
         _random = random ?? Random(),
@@ -38,8 +45,13 @@ class MockPatientTaskApi implements PatientTaskApi {
     int page = 0,
     int pageSize = 20,
     String? query,
+    CancellationToken? cancelToken,
   }) async {
     _maybeFail();
+    // The "network" gap: after it, honour a cancellation that arrived while the
+    // request was in flight (a newer search superseded this one).
+    await Future<void>.delayed(_latency);
+    cancelToken?.throwIfCancelled();
 
     final q = query?.trim().toLowerCase() ?? '';
     // Stable sort by id so pagination is deterministic across calls.

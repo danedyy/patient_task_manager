@@ -38,11 +38,10 @@ void main() {
 
       expect(page0.items.map((t) => t.id), ['t1', 't2']);
       expect(page0.total, 5);
-      expect(page0.hasMore, isTrue);
 
       final page2 = await api(seed).fetchTasks(page: 2, pageSize: 2);
       expect(page2.items.map((t) => t.id), ['t5']);
-      expect(page2.hasMore, isFalse);
+      expect(page2.total, 5);
     });
 
     test('filters by title query, case-insensitively', () async {

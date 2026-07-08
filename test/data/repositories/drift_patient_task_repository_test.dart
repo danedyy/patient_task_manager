@@ -1,5 +1,6 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:patient_task_manager/core/cancellation.dart';
 import 'package:patient_task_manager/core/failure/failure_exceptions.dart';
 import 'package:patient_task_manager/data/local/app_database.dart';
 import 'package:patient_task_manager/data/local/daos/sync_queue_dao.dart';
@@ -153,6 +154,54 @@ void main() {
     );
     final tasks = await failingRepo.watchTasks().first;
     expect(tasks.single.id, 't1');
+  });
+
+  test('search merges matching server rows without dropping local ones',
+      () async {
+    await taskDao.upsertFromServer(entity('local', TaskStatus.onHold, 1));
+    final searchRepo = makeRepo(
+      MockPatientTaskApi(
+        seed: [model('hit', TaskStatus.requested, 1)],
+        failureRate: 0,
+      ),
+    );
+
+    await searchRepo.search('task hit');
+
+    final ids = (await searchRepo.watchTasks().first).map((t) => t.id).toSet();
+    expect(ids, containsAll(['local', 'hit'])); // merged, not replaced
+  });
+
+  test('search aborts without writing when its token is cancelled mid-flight',
+      () async {
+    await taskDao.upsertFromServer(entity('local', TaskStatus.onHold, 1));
+    final searchRepo = makeRepo(
+      MockPatientTaskApi(
+        seed: [model('hit', TaskStatus.requested, 1)],
+        failureRate: 0,
+      ),
+    );
+
+    final token = CancellationToken();
+    final pending = searchRepo.search('task hit', cancelToken: token);
+    token.cancel(); // a newer search supersedes this one while it's in flight
+
+    await expectLater(pending, throwsA(isA<OperationCancelledException>()));
+    final ids = (await searchRepo.watchTasks().first).map((t) => t.id).toSet();
+    expect(ids, {'local'}); // 'hit' was never merged — the fetch aborted
+  });
+
+  test('a server push does not clobber a pending optimistic change', () async {
+    await taskDao.upsertFromServer(entity('t1', TaskStatus.requested, 1));
+    await repo.updateStatus('t1', TaskStatus.inProgress); // optimistic op @ base v1
+
+    // A server push advances the confirmed row to v2 with a different status
+    // (another client) — the version-guarded upsert accepts it.
+    await taskDao.upsertFromServer(entity('t1', TaskStatus.onHold, 2));
+
+    final task = (await repo.watchTasks().first).single;
+    expect(task.status, TaskStatus.inProgress); // optimistic intent still wins
+    expect(task.version, 2); // confirmed layer advanced underneath the fold
   });
 
   test('watchPendingSyncCount reflects the queue', () async {

@@ -2,7 +2,6 @@ import 'dart:async';
 
 import '../../core/failure/failure_exceptions.dart';
 import '../../domain/entities/sync_rejection.dart';
-import '../../domain/entities/task_transition.dart';
 import '../local/app_database.dart';
 import '../local/daos/sync_queue_dao.dart';
 import '../local/daos/task_dao.dart';
@@ -123,7 +122,7 @@ class SyncEngine {
 
     await _taskDao.upsertFromServer(server.toEntity());
 
-    if (TaskTransition.tryCreate(server.status, op.toStatus) != null) {
+    if (server.status.canTransitionTo(op.toStatus)) {
       // Still legal from the new server state — re-base and retry.
       await _queueDao.setBaseVersion(op.seq, server.version);
     } else {

@@ -1,10 +1,10 @@
 import 'package:rxdart/rxdart.dart';
 
+import '../../core/cancellation.dart';
 import '../../core/failure/failure_exceptions.dart';
 import '../../domain/entities/patient_task.dart';
 import '../../domain/entities/sync_rejection.dart';
 import '../../domain/entities/task_status.dart';
-import '../../domain/entities/task_transition.dart';
 import '../../domain/repositories/patient_task_repository.dart';
 import '../local/app_database.dart';
 import '../local/daos/sync_queue_dao.dart';
@@ -52,7 +52,7 @@ class DriftPatientTaskRepository implements PatientTaskRepository {
     // server state. `version` is untouched by the fold, so it is the confirmed
     // server version — exactly the baseline the op must be created against.
     final current = (await watchTasks().first).firstWhere((t) => t.id == taskId);
-    if (TaskTransition.tryCreate(current.status, next) == null) {
+    if (!current.status.canTransitionTo(next)) {
       throw InvalidTransitionException(current.status, next);
     }
     await _queueDao.enqueue(
@@ -70,6 +70,18 @@ class DriftPatientTaskRepository implements PatientTaskRepository {
     // left untouched. replaceAll is itself transactional (see TaskDao).
     final page = await _api.fetchTasks();
     await _taskDao.replaceAll([for (final m in page.items) m.toEntity()]);
+  }
+
+  @override
+  Future<void> search(String query, {CancellationToken? cancelToken}) async {
+    // Merge (not replace): matching rows are refreshed via the version-guarded
+    // upsert so search results and sync state can never disagree, and locally
+    // cached non-matching tasks are left intact. If the fetch was cancelled
+    // (superseded), it throws before we reach the upsert, so nothing is written.
+    final page = await _api.fetchTasks(query: query, cancelToken: cancelToken);
+    for (final m in page.items) {
+      await _taskDao.upsertFromServer(m.toEntity());
+    }
   }
 
   /// Confirmed rows with the latest queued intent per task applied on top.

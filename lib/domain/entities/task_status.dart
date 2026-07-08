@@ -10,8 +10,8 @@ enum TaskStatus {
   cancelled;
 
   /// Statuses this one may legally transition to. The single source of truth
-  /// for the state machine: [TaskTransition.tryCreate] and the UI's action
-  /// buttons both derive from it.
+  /// for the state machine: transition validation and the UI's action buttons
+  /// both derive from it.
   Set<TaskStatus> get allowedNext => switch (this) {
     requested => const {inProgress, cancelled},
     inProgress => const {onHold, completed, cancelled},
@@ -20,4 +20,7 @@ enum TaskStatus {
   };
 
   bool get isTerminal => allowedNext.isEmpty;
+
+  /// Whether moving to [next] is a legal transition from this status.
+  bool canTransitionTo(TaskStatus next) => allowedNext.contains(next);
 }

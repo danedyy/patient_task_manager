@@ -1,10 +1,9 @@
+import '../../core/cancellation.dart';
 import '../../domain/entities/task_status.dart';
 import '../models/patient_task_model.dart';
 
-/// One page of a server-side paginated task list.
-///
-/// [total] is the count of tasks matching the query across all pages, so the
-/// caller can tell whether another page exists without fetching it.
+/// One page of a server-side paginated task list. [total] is the count of tasks
+/// matching the query across all pages.
 class TaskPage {
   final List<PatientTaskModel> items;
   final int page;
@@ -17,8 +16,6 @@ class TaskPage {
     required this.pageSize,
     required this.total,
   });
-
-  bool get hasMore => (page + 1) * pageSize < total;
 }
 
 /// The remote boundary. The repository depends on this interface, never on a
@@ -29,8 +26,14 @@ class TaskPage {
 /// would hand back exactly `PatientTaskModel.fromJson(response)`.
 abstract interface class PatientTaskApi {
   /// Server-side paginated fetch. [query] filters by title when non-empty.
-  /// Throws [TransientException] to simulate an intermittent network failure.
-  Future<TaskPage> fetchTasks({int page, int pageSize, String? query});
+  /// Throws [TransientException] to simulate an intermittent network failure,
+  /// or [OperationCancelledException] if [cancelToken] is cancelled in flight.
+  Future<TaskPage> fetchTasks({
+    int page,
+    int pageSize,
+    String? query,
+    CancellationToken? cancelToken,
+  });
 
   /// Optimistic-concurrency status write. Returns the updated server row.
   ///
