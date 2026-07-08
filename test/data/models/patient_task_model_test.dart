@@ -28,16 +28,19 @@ void main() {
     expect(json['priority'], 'stat');
   });
 
-  test('entity round-trips through the model', () {
-    final entity = PatientTask(
-      id: 't1',
-      version: 3,
-      title: 'Draw blood',
-      status: TaskStatus.onHold,
-      priority: TaskPriority.urgent,
-      patientReference: 'Patient/1',
-      lastModified: DateTime.utc(2026, 1, 1),
+  test('toEntity produces the pure domain entity', () {
+    final entity = PatientTaskModel.fromJson(wireJson).toEntity();
+    expect(
+      entity,
+      PatientTask(
+        id: 't1',
+        version: 3,
+        title: 'Draw blood',
+        status: TaskStatus.inProgress,
+        priority: TaskPriority.stat,
+        patientReference: 'Patient/1',
+        lastModified: DateTime.utc(2026, 1, 1),
+      ),
     );
-    expect(PatientTaskModel.fromEntity(entity).toEntity(), entity);
   });
 }

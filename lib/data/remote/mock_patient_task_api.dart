@@ -8,9 +8,9 @@ import 'patient_task_api.dart';
 
 /// In-memory implementation of [PatientTaskApi] backed by a seeded task table.
 ///
-/// Everything nondeterministic — failures, latency, and the push interval — is
-/// injected, so the exact same class runs fully deterministic under tests
-/// (fixed [Random] seed, zero delays) and lively in the app.
+/// Everything nondeterministic — failures and the push interval — is injected,
+/// so the exact same class runs fully deterministic under tests (fixed [Random]
+/// seed) and lively in the app.
 class MockPatientTaskApi implements PatientTaskApi {
   /// Server rows keyed by id; each carries its own version counter.
   final Map<String, PatientTaskModel> _tasks;
@@ -20,9 +20,6 @@ class MockPatientTaskApi implements PatientTaskApi {
   /// Probability a [fetchTasks]/[patchStatus] call fails transiently (0..1).
   final double _failureRate;
 
-  /// Simulated round-trip latency; [Duration.zero] in tests.
-  final Duration _latency;
-
   /// How often [taskUpdates] emits a server-side change.
   final Duration _pushInterval;
 
@@ -31,7 +28,6 @@ class MockPatientTaskApi implements PatientTaskApi {
     Random? random,
     DateTime Function()? clock,
     this._failureRate = 0.15,
-    this._latency = Duration.zero,
     this._pushInterval = const Duration(seconds: 5),
   })  : _tasks = {for (final t in seed ?? _defaultSeed()) t.id: t},
         _random = random ?? Random(),
@@ -43,7 +39,6 @@ class MockPatientTaskApi implements PatientTaskApi {
     int pageSize = 20,
     String? query,
   }) async {
-    await _wire();
     _maybeFail();
 
     final q = query?.trim().toLowerCase() ?? '';
@@ -72,7 +67,6 @@ class MockPatientTaskApi implements PatientTaskApi {
     required TaskStatus status,
     required int expectedVersion,
   }) async {
-    await _wire();
     _maybeFail();
 
     final current = _tasks[taskId];
@@ -114,9 +108,6 @@ class MockPatientTaskApi implements PatientTaskApi {
     _tasks[task.id] = updated;
     return updated;
   }
-
-  Future<void> _wire() =>
-      _latency == Duration.zero ? Future.value() : Future.delayed(_latency);
 
   void _maybeFail() {
     if (_random.nextDouble() < _failureRate) {

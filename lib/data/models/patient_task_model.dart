@@ -10,7 +10,7 @@ part 'patient_task_model.g.dart';
 ///
 /// It owns everything the wire format needs — JSON (de)serialization and the
 /// enum wire-name mapping — so the domain [PatientTask] entity stays pure.
-/// Convert with [toEntity] / [PatientTaskModel.fromEntity].
+/// Convert an incoming server row to the domain type with [toEntity].
 @freezed
 abstract class PatientTaskModel with _$PatientTaskModel {
   const PatientTaskModel._();
@@ -31,18 +31,6 @@ abstract class PatientTaskModel with _$PatientTaskModel {
 
   factory PatientTaskModel.fromJson(Map<String, dynamic> json) =>
       _$PatientTaskModelFromJson(json);
-
-  factory PatientTaskModel.fromEntity(PatientTask t) => PatientTaskModel(
-    id: t.id,
-    version: t.version,
-    title: t.title,
-    status: t.status,
-    priority: t.priority,
-    patientReference: t.patientReference,
-    lastModified: t.lastModified,
-    dueDate: t.dueDate,
-    assignee: t.assignee,
-  );
 
   PatientTask toEntity() => PatientTask(
     id: id,
