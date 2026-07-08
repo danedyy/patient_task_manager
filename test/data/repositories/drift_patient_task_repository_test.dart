@@ -1,0 +1,165 @@
+import 'package:drift/native.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:patient_task_manager/core/failure/failure_exceptions.dart';
+import 'package:patient_task_manager/data/local/app_database.dart';
+import 'package:patient_task_manager/data/local/daos/sync_queue_dao.dart';
+import 'package:patient_task_manager/data/local/daos/task_dao.dart';
+import 'package:patient_task_manager/data/models/patient_task_model.dart';
+import 'package:patient_task_manager/data/remote/mock_patient_task_api.dart';
+import 'package:patient_task_manager/data/remote/patient_task_api.dart';
+import 'package:patient_task_manager/data/repositories/drift_patient_task_repository.dart';
+import 'package:patient_task_manager/data/sync/sync_engine.dart';
+import 'package:patient_task_manager/domain/entities/patient_task.dart';
+import 'package:patient_task_manager/domain/entities/task_status.dart';
+
+void main() {
+  final t0 = DateTime.utc(2026, 1, 1);
+
+  PatientTask entity(String id, TaskStatus status, int version) => PatientTask(
+        id: id,
+        version: version,
+        title: 'task $id',
+        status: status,
+        priority: TaskPriority.routine,
+        patientReference: 'Patient/1',
+        lastModified: t0,
+      );
+
+  PatientTaskModel model(String id, TaskStatus status, int version) =>
+      PatientTaskModel(
+        id: id,
+        version: version,
+        title: 'task $id',
+        status: status,
+        priority: TaskPriority.routine,
+        patientReference: 'Patient/1',
+        lastModified: t0,
+      );
+
+  late AppDatabase db;
+  late TaskDao taskDao;
+  late SyncQueueDao queueDao;
+  late DriftPatientTaskRepository repo;
+
+  DriftPatientTaskRepository makeRepo(PatientTaskApi api) {
+    final engine = SyncEngine(
+      api: api,
+      taskDao: taskDao,
+      queueDao: queueDao,
+      delay: (_) async {},
+    );
+    return DriftPatientTaskRepository(
+      api: api,
+      taskDao: taskDao,
+      queueDao: queueDao,
+      engine: engine,
+      clock: () => t0,
+    );
+  }
+
+  setUp(() {
+    db = AppDatabase(NativeDatabase.memory());
+    taskDao = db.taskDao;
+    queueDao = db.syncQueueDao;
+    // Default api is unused by the fold/updateStatus tests; refresh tests build
+    // their own with a controlled seed / failure rate.
+    repo = makeRepo(MockPatientTaskApi(failureRate: 0));
+  });
+
+  tearDown(() => db.close());
+
+  test('watchTasks folds pending ops onto confirmed rows (version untouched)',
+      () async {
+    await taskDao.upsertFromServer(entity('t1', TaskStatus.requested, 1));
+    await queueDao.enqueue(
+      taskId: 't1',
+      from: TaskStatus.requested,
+      to: TaskStatus.inProgress,
+      baseVersion: 1,
+      createdAt: t0,
+    );
+
+    final tasks = await repo.watchTasks().first;
+
+    expect(tasks.single.status, TaskStatus.inProgress); // optimistic
+    expect(tasks.single.version, 1); // still the server's version
+  });
+
+  test('updateStatus enqueues a legal transition and shows it optimistically',
+      () async {
+    await taskDao.upsertFromServer(entity('t1', TaskStatus.requested, 1));
+
+    await repo.updateStatus('t1', TaskStatus.inProgress);
+
+    expect(await queueDao.watchCount().first, 1);
+    final tasks = await repo.watchTasks().first;
+    expect(tasks.single.status, TaskStatus.inProgress);
+  });
+
+  test('updateStatus throws on an illegal transition and enqueues nothing',
+      () async {
+    await taskDao.upsertFromServer(entity('t1', TaskStatus.completed, 1));
+
+    await expectLater(
+      repo.updateStatus('t1', TaskStatus.inProgress),
+      throwsA(isA<InvalidTransitionException>()),
+    );
+    expect(await queueDao.watchCount().first, 0);
+  });
+
+  test('updateStatus validates against the folded intent, not the server row',
+      () async {
+    await taskDao.upsertFromServer(entity('t1', TaskStatus.requested, 1));
+
+    // onHold is illegal from `requested` but legal from `inProgress`; the second
+    // call must see the first op's intent, or it would be rejected.
+    await repo.updateStatus('t1', TaskStatus.inProgress);
+    await repo.updateStatus('t1', TaskStatus.onHold);
+
+    expect(await queueDao.watchCount().first, 2);
+    final tasks = await repo.watchTasks().first;
+    expect(tasks.single.status, TaskStatus.onHold);
+  });
+
+  test('refresh replaces the confirmed layer with the server snapshot',
+      () async {
+    await taskDao.upsertFromServer(entity('stale', TaskStatus.requested, 1));
+    final freshRepo = makeRepo(
+      MockPatientTaskApi(
+        seed: [model('t1', TaskStatus.inProgress, 3)],
+        failureRate: 0,
+      ),
+    );
+
+    await freshRepo.refresh();
+
+    final tasks = await freshRepo.watchTasks().first;
+    expect(tasks.map((t) => t.id), ['t1']);
+    expect(tasks.single.status, TaskStatus.inProgress);
+  });
+
+  test('refresh leaves local state untouched when the fetch fails', () async {
+    await taskDao.upsertFromServer(entity('t1', TaskStatus.requested, 1));
+    final failingRepo = makeRepo(
+      MockPatientTaskApi(
+        seed: [model('t2', TaskStatus.inProgress, 1)],
+        failureRate: 1,
+      ),
+    );
+
+    await expectLater(
+      failingRepo.refresh(),
+      throwsA(isA<TransientException>()),
+    );
+    final tasks = await failingRepo.watchTasks().first;
+    expect(tasks.single.id, 't1');
+  });
+
+  test('watchPendingSyncCount reflects the queue', () async {
+    await taskDao.upsertFromServer(entity('t1', TaskStatus.requested, 1));
+
+    expect(await repo.watchPendingSyncCount().first, 0);
+    await repo.updateStatus('t1', TaskStatus.inProgress);
+    expect(await repo.watchPendingSyncCount().first, 1);
+  });
+}
