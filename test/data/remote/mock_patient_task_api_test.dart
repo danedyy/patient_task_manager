@@ -127,4 +127,13 @@ void main() {
       expect(event, isNull);
     });
   });
+
+  group('getTask', () {
+    test('returns the current row, or null when unknown', () async {
+      final subject = api([row('t1', TaskStatus.requested)]);
+
+      expect((await subject.getTask('t1'))?.id, 't1');
+      expect(await subject.getTask('missing'), isNull);
+    });
+  });
 }

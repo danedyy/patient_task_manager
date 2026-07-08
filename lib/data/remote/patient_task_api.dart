@@ -42,6 +42,10 @@ abstract interface class PatientTaskApi {
     required int expectedVersion,
   });
 
+  /// Fetches a single task's current server row, or null if it no longer
+  /// exists. Used by conflict resolution to re-read the authoritative status.
+  Future<PatientTaskModel?> getTask(String id);
+
   /// A live feed of server-originated task changes (another client).
   /// Each event is the full updated row.
   Stream<PatientTaskModel> taskUpdates();

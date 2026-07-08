@@ -86,6 +86,12 @@ class MockPatientTaskApi implements PatientTaskApi {
     return updated;
   }
 
+  // Deterministic on purpose: conflict resolution reads through this, and a
+  // reliable re-read keeps that path bounded. Failures are injected on the
+  // write path ([patchStatus]) and the list path ([fetchTasks]) instead.
+  @override
+  Future<PatientTaskModel?> getTask(String id) async => _tasks[id];
+
   @override
   Stream<PatientTaskModel> taskUpdates() =>
       Stream.periodic(_pushInterval, (_) => _pushOne())
