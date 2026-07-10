@@ -23,11 +23,11 @@ void main() {
 
   // Deterministic API: no random failures, no latency, fixed seed + clock.
   MockPatientTaskApi api(List<PatientTaskModel> seed) => MockPatientTaskApi(
-        seed: seed,
-        random: Random(1),
-        clock: () => clock,
-        failureRate: 0,
-      );
+    seed: seed,
+    random: Random(1),
+    clock: () => clock,
+    failureRate: 0,
+  );
 
   group('fetchTasks', () {
     test('paginates deterministically and reports total', () async {
@@ -89,8 +89,13 @@ void main() {
           status: TaskStatus.inProgress,
           expectedVersion: 3,
         ),
-        throwsA(isA<ConflictException>()
-            .having((e) => e.serverVersion, 'serverVersion', 4)),
+        throwsA(
+          isA<ConflictException>().having(
+            (e) => e.serverVersion,
+            'serverVersion',
+            4,
+          ),
+        ),
       );
     });
   });

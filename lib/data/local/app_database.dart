@@ -16,8 +16,9 @@ class AppDatabase extends _$AppDatabase {
   /// Takes a [QueryExecutor] so tests can inject `NativeDatabase.memory()`.
   AppDatabase(super.e);
 
-  /// Production opener — an on-disk SQLite file.
-  factory AppDatabase.open() => AppDatabase(driftDatabase(name: 'patient_tasks'));
+  /// Production opener: an on-disk SQLite file.
+  factory AppDatabase.open() =>
+      AppDatabase(driftDatabase(name: 'patient_tasks'));
 
   @override
   int get schemaVersion => 1;

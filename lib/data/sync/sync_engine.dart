@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../core/connectivity/connectivity_monitor.dart';
 import '../../core/failure/failure_exceptions.dart';
 import '../../domain/entities/sync_rejection.dart';
 import '../local/app_database.dart';
@@ -15,14 +16,17 @@ import 'backoff.dart';
 /// - **single in-flight**: one op is synced at a time, in FIFO `seq` order, so
 ///   per-task ordering is preserved without any locking.
 /// - **retries are awaited inline** with injected [Backoff] delay rather than a
-///   detached timer — simpler, and the injected [delay] keeps tests instant.
+///   detached timer: simpler, and the injected [delay] keeps tests instant.
 /// - **conflicts are re-validated** against the live server status: still-legal
 ///   transitions are re-based and retried; illegal ones are dropped and a
 ///   [SyncRejection] is emitted for the UI to surface.
+/// - **connectivity-gated**: while the device reports no network, the drain
+///   pauses (ops accumulate in the queue); regaining the link flushes them.
 class SyncEngine {
   final PatientTaskApi _api;
   final TaskDao _taskDao;
   final SyncQueueDao _queueDao;
+  final ConnectivityMonitor _connectivity;
   final Backoff _backoff;
   final Future<void> Function(Duration) _delay;
   final int _maxAttempts;
@@ -31,46 +35,55 @@ class SyncEngine {
 
   StreamSubscription<void>? _queueSub;
   StreamSubscription<void>? _pushSub;
+  StreamSubscription<bool>? _connSub;
   bool _draining = false;
+
+  /// Optimistic default so a directly-invoked [drain] (in tests) and the common
+  /// online case work without waiting on the async connectivity seed; [start]
+  /// corrects it from the real device state and on every subsequent change.
+  bool _online = true;
 
   SyncEngine({
     required this._api,
     required this._taskDao,
     required this._queueDao,
+    required this._connectivity,
     Backoff? backoff,
     Future<void> Function(Duration)? delay,
     this._maxAttempts = 5,
-  })  : _backoff = backoff ?? Backoff(),
-        // Wall-clock delay by default; tests inject an instant no-op so backoff
-        // never spends real time in a fake environment.
-        _delay = delay ?? Future.delayed;
+  }) : _backoff = backoff ?? Backoff(),
+       // Wall-clock delay by default, tests inject an instant no-op so backoff
+       // never spends real time in a fake environment.
+       _delay = delay ?? Future.delayed;
 
-  /// Rejected changes the UI should notify the user about.
   Stream<SyncRejection> get rejections => _rejections.stream;
 
-  /// Begins draining on every queue change and merging server pushes.
+  /// Begins draining on every queue change, applying live server pushes, and
+  /// resuming the drain when connectivity returns.
   void start() {
     _queueSub = _queueDao.watchAll().listen((_) => drain());
     _pushSub = _api.taskUpdates().listen(_onServerPush);
+
+    _connSub = _connectivity.onStatusChange.listen(_onConnectivity);
+    _connectivity.isOnline().then(_onConnectivity);
   }
 
-  Future<void> dispose() async {
-    await _queueSub?.cancel();
-    await _pushSub?.cancel();
-    await _rejections.close();
+  void _onConnectivity(bool online) {
+    _online = online;
+    if (online) drain(); // flush whatever piled up while offline
   }
 
-  /// Drains the queue until it is empty or the head op stalls. Re-entrant calls
-  /// are ignored so only one op is ever in flight.
+  /// Drains the queue until it is empty, the head op stalls, or the device goes
+  /// offline. Re-entrant calls are ignored so only one op is ever in flight.
   Future<void> drain() async {
-    if (_draining) return;
+    if (_draining || !_online) return;
     _draining = true;
     try {
-      while (true) {
+      while (_online) {
         final op = await _queueDao.next();
         if (op == null) break;
         final progressed = await _attempt(op);
-        if (!progressed) break; // stalled — wait for the next queue change
+        if (!progressed) break; // stalled, wait for the next queue change
       }
     } finally {
       _draining = false;
@@ -80,8 +93,14 @@ class SyncEngine {
   /// A server push wins the confirmed layer (version-guarded). Pending ops live
   /// in a separate table, so this can never clobber an optimistic change; if the
   /// push makes a pending op illegal, the drain's conflict path drops it later.
-  Future<void> _onServerPush(PatientTaskModel row) =>
-      _taskDao.upsertFromServer(row.toEntity());
+  ///
+  /// Live deltas are dropped while offline rather than buffered: replaying a
+  /// backlog of stale intermediate states on reconnect is fragile, so the
+  /// repository reconciles authoritative state with a single refetch instead.
+  Future<void> _onServerPush(PatientTaskModel row) async {
+    if (!_online) return;
+    await _taskDao.upsertFromServer(row.toEntity());
+  }
 
   /// Attempts one op. Returns true if the queue moved forward (op resolved, or a
   /// retry was scheduled), false if the op stalled and draining should pause.
@@ -123,15 +142,26 @@ class SyncEngine {
     await _taskDao.upsertFromServer(server.toEntity());
 
     if (server.status.canTransitionTo(op.toStatus)) {
-      // Still legal from the new server state — re-base and retry.
+      // Still legal from the new server state, so re-base and retry.
       await _queueDao.setBaseVersion(op.seq, server.version);
     } else {
-      await _drop(op, 'Server moved the task to ${server.status.name}');
+      await _drop(
+        op,
+        "'${server.title}' was changed on the server to ${server.status.name}; "
+        'your ${op.toStatus.name} update was discarded',
+      );
     }
   }
 
   Future<void> _drop(PendingOperation op, String reason) async {
     await _queueDao.deleteOp(op.seq);
     _rejections.add(SyncRejection(op.taskId, reason));
+  }
+
+  Future<void> dispose() async {
+    await _queueSub?.cancel();
+    await _pushSub?.cancel();
+    await _connSub?.cancel();
+    await _rejections.close();
   }
 }

@@ -4,7 +4,7 @@ import 'task_status.dart';
 
 part 'patient_task.freezed.dart';
 
-/// Clinical urgency of a task. Pure entity — wire names live in the model.
+/// Clinical urgency of a task. Pure entity; wire names live in the model.
 enum TaskPriority { routine, urgent, asap, stat }
 
 /// A patient-related task, loosely shaped after a FHIR Task resource.

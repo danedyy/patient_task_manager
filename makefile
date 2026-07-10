@@ -12,16 +12,6 @@ build-runner:
 	fvm flutter pub run build_runner build
 	@echo "✅ Code generation complete!"
 
-valid-dep:
-	@echo "🔧 Running dependency_validator..."
-	fvm dart run dependency_validator
-	@echo "✅ Dependency validation complete!"
-
-lint:
-	@echo "🔧 Running lints..."
-	fvm dart run custom_lint
-	@echo "✅ Linting complete!"
-
 format-code: fix-lint
 	@echo "🔧 Running formatting..."
 	fvm dart format .

@@ -57,6 +57,30 @@ void main() {
       final ids = (await db.taskDao.watchAll().first).map((t) => t.id);
       expect(ids, ['new']);
     });
+
+    test(
+      'upsertAllFromServer merges a page in one emission, not one per row',
+      () async {
+        final emissions = <int>[];
+        final sub = db.taskDao.watchAll().listen(
+          (rows) => emissions.add(rows.length),
+        );
+        await pumpEventQueue();
+        emissions.clear(); // drop the initial (empty) emission
+
+        await db.taskDao.upsertAllFromServer([
+          _task(id: 't1'),
+          _task(id: 't2'),
+          _task(id: 't3'),
+        ]);
+        await pumpEventQueue();
+        await sub.cancel();
+
+        // One emission carrying all three, not [1, 2, 3] as a per-row loop gives:
+        // that trickle is what made paginated tiles appear one at a time.
+        expect(emissions, [3]);
+      },
+    );
   });
 
   group('SyncQueueDao', () {

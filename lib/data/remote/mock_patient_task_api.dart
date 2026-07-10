@@ -2,14 +2,14 @@ import 'dart:math';
 
 import '../../core/cancellation.dart';
 import '../../core/failure/failure_exceptions.dart';
-import '../../domain/entities/patient_task.dart';
 import '../../domain/entities/task_status.dart';
 import '../models/patient_task_model.dart';
+import 'mock_task_seed.dart';
 import 'patient_task_api.dart';
 
 /// In-memory implementation of [PatientTaskApi] backed by a seeded task table.
 ///
-/// Everything nondeterministic failures, latency, and the push interval is
+/// Everything nondeterministic failures, and the push interval is
 /// injected, so the exact same class runs fully deterministic under tests
 /// (fixed [Random] seed, zero delay) and lively in the app.
 class MockPatientTaskApi implements PatientTaskApi {
@@ -18,13 +18,7 @@ class MockPatientTaskApi implements PatientTaskApi {
   final Random _random;
   final DateTime Function() _clock;
 
-  /// Probability a [fetchTasks]/[patchStatus] call fails transiently (0..1).
   final double _failureRate;
-
-  /// Simulated round-trip latency. Doubles as the in-flight window during which
-  /// a [fetchTasks] [CancellationToken] can be cancelled; [Duration.zero] still
-  /// yields an async suspension point, so cancellation is observable in tests.
-  final Duration _latency;
 
   /// How often [taskUpdates] emits a server-side change.
   final Duration _pushInterval;
@@ -34,11 +28,10 @@ class MockPatientTaskApi implements PatientTaskApi {
     Random? random,
     DateTime Function()? clock,
     this._failureRate = 0.15,
-    this._latency = Duration.zero,
     this._pushInterval = const Duration(seconds: 5),
-  })  : _tasks = {for (final t in seed ?? _defaultSeed()) t.id: t},
-        _random = random ?? Random(),
-        _clock = clock ?? DateTime.now;
+  }) : _tasks = {for (final t in seed ?? defaultTaskSeed()) t.id: t},
+       _random = random ?? Random(),
+       _clock = clock ?? DateTime.now;
 
   @override
   Future<TaskPage> fetchTasks({
@@ -50,15 +43,16 @@ class MockPatientTaskApi implements PatientTaskApi {
     _maybeFail();
     // The "network" gap: after it, honour a cancellation that arrived while the
     // request was in flight (a newer search superseded this one).
-    await Future<void>.delayed(_latency);
+    await Future<void>.delayed(Duration.zero);
     cancelToken?.throwIfCancelled();
 
     final q = query?.trim().toLowerCase() ?? '';
     // Stable sort by id so pagination is deterministic across calls.
-    final matches = _tasks.values
-        .where((t) => q.isEmpty || t.title.toLowerCase().contains(q))
-        .toList()
-      ..sort((a, b) => a.id.compareTo(b.id));
+    final matches =
+        _tasks.values
+            .where((t) => q.isEmpty || t.title.toLowerCase().contains(q))
+            .toList()
+          ..sort((a, b) => a.id.compareTo(b.id));
 
     final start = page * pageSize;
     final items = start >= matches.length
@@ -105,10 +99,10 @@ class MockPatientTaskApi implements PatientTaskApi {
   Future<PatientTaskModel?> getTask(String id) async => _tasks[id];
 
   @override
-  Stream<PatientTaskModel> taskUpdates() =>
-      Stream.periodic(_pushInterval, (_) => _pushOne())
-          .where((t) => t != null)
-          .cast<PatientTaskModel>();
+  Stream<PatientTaskModel> taskUpdates() => Stream.periodic(
+    _pushInterval,
+    (_) => _pushOne(),
+  ).where((t) => t != null).cast<PatientTaskModel>();
 
   /// Advances one random non-terminal task along a legal transition and
   /// returns the new row, or null when every task is already terminal.
@@ -132,43 +126,4 @@ class MockPatientTaskApi implements PatientTaskApi {
       throw const TransientException('simulated network error');
     }
   }
-}
-
-/// A fixed spread of ~15 tasks across patients, priorities, and statuses.
-List<PatientTaskModel> _defaultSeed() {
-  final base = DateTime.utc(2026, 7, 1);
-  const statuses = TaskStatus.values;
-  const priorities = TaskPriority.values;
-  const titles = [
-    'Draw blood sample',
-    'Administer medication',
-    'Vitals check',
-    'Wound dressing change',
-    'Physiotherapy session',
-    'ECG recording',
-    'Insulin adjustment',
-    'Discharge paperwork',
-    'X-ray review',
-    'IV line replacement',
-    'Nutrition consult',
-    'Pain reassessment',
-    'Fall-risk assessment',
-    'Catheter removal',
-    'Post-op observation',
-  ];
-
-  return [
-    for (var i = 0; i < titles.length; i++)
-      PatientTaskModel(
-        id: 't${i + 1}',
-        version: 1,
-        title: titles[i],
-        status: statuses[i % statuses.length],
-        priority: priorities[i % priorities.length],
-        patientReference: 'Patient/${(i % 5) + 1}',
-        lastModified: base.add(Duration(hours: i)),
-        dueDate: i.isEven ? base.add(Duration(days: i + 1)) : null,
-        assignee: i % 3 == 0 ? 'Practitioner/${(i % 4) + 1}' : null,
-      ),
-  ];
 }

@@ -6,11 +6,6 @@ import '../../domain/entities/task_status.dart';
 part 'patient_task_model.freezed.dart';
 part 'patient_task_model.g.dart';
 
-/// Data-layer DTO for the API boundary.
-///
-/// It owns everything the wire format needs — JSON (de)serialization and the
-/// enum wire-name mapping — so the domain [PatientTask] entity stays pure.
-/// Convert an incoming server row to the domain type with [toEntity].
 @freezed
 abstract class PatientTaskModel with _$PatientTaskModel {
   const PatientTaskModel._();

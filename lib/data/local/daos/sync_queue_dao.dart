@@ -7,11 +7,9 @@ import '../tables.dart';
 part 'sync_queue_dao.g.dart';
 
 /// Reads and writes the persistent sync queue ([PendingOperations]).
-///
-/// Drift generates the row class [PendingOperation] from the table, so it is
-/// reused directly rather than hand-rolling a parallel model.
 @DriftAccessor(tables: [PendingOperations])
-class SyncQueueDao extends DatabaseAccessor<AppDatabase> with _$SyncQueueDaoMixin {
+class SyncQueueDao extends DatabaseAccessor<AppDatabase>
+    with _$SyncQueueDaoMixin {
   SyncQueueDao(super.db);
 
   /// Drives the "syncing…" indicator.
@@ -21,10 +19,10 @@ class SyncQueueDao extends DatabaseAccessor<AppDatabase> with _$SyncQueueDaoMixi
     return query.map((row) => row.read(count)!).watchSingle();
   }
 
-  /// All ops in FIFO order — the repository folds these onto the confirmed rows.
-  Stream<List<PendingOperation>> watchAll() =>
-      (select(pendingOperations)..orderBy([(t) => OrderingTerm.asc(t.seq)]))
-          .watch();
+  /// All ops in FIFO order; the repository folds these onto the confirmed rows.
+  Stream<List<PendingOperation>> watchAll() => (select(
+    pendingOperations,
+  )..orderBy([(t) => OrderingTerm.asc(t.seq)])).watch();
 
   Future<void> enqueue({
     required String taskId,
@@ -61,6 +59,7 @@ class SyncQueueDao extends DatabaseAccessor<AppDatabase> with _$SyncQueueDaoMixi
 
   /// Re-baselines an op after a 409 was resolved as "still legal".
   Future<void> setBaseVersion(int seq, int baseVersion) =>
-      (update(pendingOperations)..where((t) => t.seq.equals(seq)))
-          .write(PendingOperationsCompanion(baseVersion: Value(baseVersion)));
+      (update(pendingOperations)..where((t) => t.seq.equals(seq))).write(
+        PendingOperationsCompanion(baseVersion: Value(baseVersion)),
+      );
 }

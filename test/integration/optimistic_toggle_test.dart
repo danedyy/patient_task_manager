@@ -8,10 +8,12 @@ import 'package:patient_task_manager/domain/entities/patient_task.dart';
 import 'package:patient_task_manager/domain/entities/task_status.dart';
 import 'package:patient_task_manager/presentation/bloc/patient_task_bloc.dart';
 
+import '../support/connectivity_fakes.dart';
+
 /// End-to-end (bloc -> real repository -> in-memory DB): a status change shows up
 /// optimistically in the Loaded state before any sync runs. The engine is left
 /// unstarted on purpose, so the op stays pending and the visible status can only
-/// come from the fold — proving the optimism, not a server round-trip.
+/// come from the fold, proving the optimism, not a server round-trip.
 void main() {
   final t0 = DateTime.utc(2026, 1, 1);
 
@@ -22,6 +24,7 @@ void main() {
       api: api,
       taskDao: db.taskDao,
       queueDao: db.syncQueueDao,
+      connectivity: const AlwaysOnline(),
       delay: (_) async {},
     );
     final repo = DriftPatientTaskRepository(
@@ -29,6 +32,7 @@ void main() {
       taskDao: db.taskDao,
       queueDao: db.syncQueueDao,
       engine: engine,
+      connectivity: const AlwaysOnline(),
       clock: () => t0,
     );
 
@@ -44,7 +48,7 @@ void main() {
       ),
     );
 
-    final bloc = PatientTaskBloc(repo);
+    final bloc = PatientTaskBloc(repo, const AlwaysOnline());
     bloc.add(const TaskListSubscribed());
 
     await expectLater(

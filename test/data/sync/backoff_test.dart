@@ -18,7 +18,7 @@ void main() {
     expect(backoff.delayFor(10), const Duration(seconds: 2)); // capped
   });
 
-  test('adds jitter bounded by half the (capped) delay', () {
+  test('jitter stays within [ceil/2, ceil] of the capped delay', () {
     final backoff = Backoff(
       base: const Duration(milliseconds: 100),
       cap: const Duration(seconds: 10),
@@ -26,15 +26,16 @@ void main() {
     );
 
     for (var attempt = 0; attempt < 6; attempt++) {
-      final expoMs = min(10000, 100 * pow(2, attempt)).toInt();
+      final ceilMs = min(10000, 100 * (1 << attempt));
       final delay = backoff.delayFor(attempt).inMilliseconds;
-      expect(delay, greaterThanOrEqualTo(expoMs));
-      expect(delay, lessThanOrEqualTo(expoMs + expoMs ~/ 2));
+      // Jitter is shaved off the ceiling, never added past it.
+      expect(delay, lessThanOrEqualTo(ceilMs));
+      expect(delay, greaterThanOrEqualTo(ceilMs - ceilMs ~/ 2));
     }
   });
 }
 
-/// A [Random] whose `nextInt` is always 0 — removes jitter for exact assertions.
+/// A [Random] whose `nextInt` is always 0, to remove jitter for exact assertions.
 class _ZeroRandom implements Random {
   @override
   int nextInt(int max) => 0;

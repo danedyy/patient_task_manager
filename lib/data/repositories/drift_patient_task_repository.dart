@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:rxdart/rxdart.dart';
 
 import '../../core/cancellation.dart';
+import '../../core/connectivity/connectivity_monitor.dart';
 import '../../core/failure/failure_exceptions.dart';
 import '../../domain/entities/patient_task.dart';
 import '../../domain/entities/sync_rejection.dart';
 import '../../domain/entities/task_status.dart';
+import '../../domain/entities/task_transition.dart';
 import '../../domain/repositories/patient_task_repository.dart';
 import '../local/app_database.dart';
 import '../local/daos/sync_queue_dao.dart';
@@ -20,6 +24,7 @@ class DriftPatientTaskRepository implements PatientTaskRepository {
   final TaskDao _taskDao;
   final SyncQueueDao _queueDao;
   final SyncEngine _engine;
+  final ConnectivityMonitor _connectivity;
   final DateTime Function() _clock;
 
   DriftPatientTaskRepository({
@@ -27,6 +32,7 @@ class DriftPatientTaskRepository implements PatientTaskRepository {
     required this._taskDao,
     required this._queueDao,
     required this._engine,
+    required this._connectivity,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
@@ -47,53 +53,68 @@ class DriftPatientTaskRepository implements PatientTaskRepository {
 
   @override
   Future<void> updateStatus(String taskId, TaskStatus next) async {
-    // Validate against the *effective* status (confirmed + pending), so a chain
-    // of optimistic edits is checked against the latest intent, not stale
-    // server state. `version` is untouched by the fold, so it is the confirmed
-    // server version — exactly the baseline the op must be created against.
-    final current = (await watchTasks().first).firstWhere((t) => t.id == taskId);
-    if (!current.status.canTransitionTo(next)) {
+    final current = (await watchTasks().first).firstWhere(
+      (t) => t.id == taskId,
+    );
+    // Impossible-to-construct enforcement: no proven transition, no enqueue.
+    final transition = TaskTransition.tryCreate(current.status, next);
+    if (transition == null) {
       throw InvalidTransitionException(current.status, next);
     }
     await _queueDao.enqueue(
       taskId: taskId,
-      from: current.status,
-      to: next,
+      from: transition.from,
+      to: transition.to,
       baseVersion: current.version,
       createdAt: _clock(),
     );
   }
 
-  @override
-  Future<void> refresh() async {
-    // fetchTasks throws before replaceAll runs on failure, so local state is
-    // left untouched. replaceAll is itself transactional (see TaskDao).
-    final page = await _api.fetchTasks();
-    await _taskDao.replaceAll([for (final m in page.items) m.toEntity()]);
-  }
-
-  @override
-  Future<void> search(String query, {CancellationToken? cancelToken}) async {
-    // Merge (not replace): matching rows are refreshed via the version-guarded
-    // upsert so search results and sync state can never disagree, and locally
-    // cached non-matching tasks are left intact. If the fetch was cancelled
-    // (superseded), it throws before we reach the upsert, so nothing is written.
-    final page = await _api.fetchTasks(query: query, cancelToken: cancelToken);
-    for (final m in page.items) {
-      await _taskDao.upsertFromServer(m.toEntity());
+  /// A remote read needs a link. Offline, a real HTTP client fails with a network
+  /// error, so we throw one too (callers fall back to the cached Drift data).
+  Future<void> _requireOnline() async {
+    if (!await _connectivity.isOnline()) {
+      throw const TransientException('offline: no network for a server fetch');
     }
   }
 
-  /// Confirmed rows with the latest queued intent per task applied on top.
-  /// Optimistic state is derived here, never stored — rolling back is simply
-  /// the op disappearing from the queue.
+  @override
+  Future<bool> refresh() async {
+    await _requireOnline();
+  
+    final page = await _api.fetchTasks();
+    await _taskDao.replaceAll([for (final m in page.items) m.toEntity()]);
+    return page.pageSize < page.total; // more pages beyond the first
+  }
+
+  @override
+  Future<bool> fetchPage(
+    String query,
+    int page, {
+    CancellationToken? cancelToken,
+  }) async {
+    await _requireOnline(); 
+
+    final result = await _api.fetchTasks(
+      query: query,
+      page: page,
+      cancelToken: cancelToken,
+    );
+    // Batch the merge so the whole page lands in one list emission (a per-row
+    // loop makes the tiles trickle in one at a time).
+    await _taskDao.upsertAllFromServer([
+      for (final m in result.items) m.toEntity(),
+    ]);
+    return (page + 1) * result.pageSize < result.total; // more pages remain
+  }
+
   List<PatientTask> _fold(
     List<PatientTask> confirmed,
     List<PendingOperation> pending,
   ) {
     if (pending.isEmpty) return confirmed;
     // Ops arrive in `seq` order; the last per task is the net intent, because
-    // each was validated against the previous — they form a legal chain.
+    // each was validated against the previous, so they form a legal chain.
     final latest = <String, TaskStatus>{};
     for (final op in pending) {
       latest[op.taskId] = op.toStatus;

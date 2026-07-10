@@ -10,6 +10,8 @@ import 'package:patient_task_manager/data/sync/sync_engine.dart';
 import 'package:patient_task_manager/domain/entities/patient_task.dart';
 import 'package:patient_task_manager/domain/entities/task_status.dart';
 
+import '../support/connectivity_fakes.dart';
+
 class _MockApi extends Mock implements PatientTaskApi {}
 
 void main() {
@@ -18,14 +20,14 @@ void main() {
   final t0 = DateTime.utc(2026, 1, 1);
 
   PatientTask entity(String id, TaskStatus status, int version) => PatientTask(
-        id: id,
-        version: version,
-        title: 'task $id',
-        status: status,
-        priority: TaskPriority.routine,
-        patientReference: 'Patient/1',
-        lastModified: t0,
-      );
+    id: id,
+    version: version,
+    title: 'task $id',
+    status: status,
+    priority: TaskPriority.routine,
+    patientReference: 'Patient/1',
+    lastModified: t0,
+  );
 
   PatientTaskModel model(String id, TaskStatus status, int version) =>
       PatientTaskModel(
@@ -69,15 +71,18 @@ void main() {
 
     // The engine on the fresh instance drains whatever it finds on startup.
     final api = _MockApi();
-    when(() => api.patchStatus(
-          taskId: any(named: 'taskId'),
-          status: any(named: 'status'),
-          expectedVersion: any(named: 'expectedVersion'),
-        )).thenAnswer((_) async => model('t1', TaskStatus.inProgress, 2));
+    when(
+      () => api.patchStatus(
+        taskId: any(named: 'taskId'),
+        status: any(named: 'status'),
+        expectedVersion: any(named: 'expectedVersion'),
+      ),
+    ).thenAnswer((_) async => model('t1', TaskStatus.inProgress, 2));
     final engine = SyncEngine(
       api: api,
       taskDao: db.taskDao,
       queueDao: db.syncQueueDao,
+      connectivity: const AlwaysOnline(),
       delay: (_) async {},
     );
 

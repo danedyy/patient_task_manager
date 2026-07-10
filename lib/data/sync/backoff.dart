@@ -3,9 +3,10 @@ import 'dart:math';
 /// Exponential backoff with additive jitter for retrying transient sync
 /// failures.
 ///
-/// `delay = min(cap, base * 2^attempt) + random(0 .. capped/2)`. The exponential
-/// term backs off fast; the cap bounds it; the jitter (0–50% on top) spreads
-/// retries so many stalled ops don't stampede the server in lockstep.
+/// `delay = ceil - random(0 .. ceil/2)`, where `ceil = min(cap, base * (1 <<
+/// min(attempt, 10)))`. The exponential term backs off fast; the cap bounds it;
+/// the jitter (0–50% shaved off) spreads retries so many stalled ops don't
+/// stampede the server in lockstep.
 /// [Random] is injected so tests get a fixed, assertable sequence.
 class Backoff {
   final Duration base;
@@ -19,9 +20,9 @@ class Backoff {
   }) : _random = random ?? Random();
 
   Duration delayFor(int attempt) {
-    final expMs = base.inMilliseconds * pow(2, attempt).toDouble();
-    final cappedMs = min(cap.inMilliseconds.toDouble(), expMs).toInt();
-    final jitterMs = _random.nextInt((cappedMs ~/ 2) + 1);
-    return Duration(milliseconds: cappedMs + jitterMs);
+    final expMs = base.inMilliseconds * (1 << min(attempt, 10));
+    final ceilMs = min(cap.inMilliseconds, expMs);
+    final jitterMs = _random.nextInt((ceilMs ~/ 2) + 1);
+    return Duration(milliseconds: ceilMs - jitterMs);
   }
 }

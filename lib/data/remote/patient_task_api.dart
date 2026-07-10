@@ -1,9 +1,6 @@
 import '../../core/cancellation.dart';
 import '../../domain/entities/task_status.dart';
 import '../models/patient_task_model.dart';
-
-/// One page of a server-side paginated task list. [total] is the count of tasks
-/// matching the query across all pages.
 class TaskPage {
   final List<PatientTaskModel> items;
   final int page;
@@ -22,7 +19,7 @@ class TaskPage {
 /// concrete client, so the in-memory [MockPatientTaskApi] and a future HTTP
 /// implementation are drop-in swappable.
 ///
-/// It speaks [PatientTaskModel] — the wire DTO — because a real HTTP client
+/// It speaks [PatientTaskModel], the wire DTO, because a real HTTP client
 /// would hand back exactly `PatientTaskModel.fromJson(response)`.
 abstract interface class PatientTaskApi {
   /// Server-side paginated fetch. [query] filters by title when non-empty.

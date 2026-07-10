@@ -45,7 +45,11 @@ final class RefreshRequested extends PatientTaskEvent {
   const RefreshRequested();
 }
 
-// --- Internal events (fed from repository streams) ---
+/// Reached the end of the list; pull the next server page into the cache.
+final class LoadMoreRequested extends PatientTaskEvent {
+  const LoadMoreRequested();
+}
+
 
 final class _TasksUpdated extends PatientTaskEvent {
   final List<PatientTask> tasks;

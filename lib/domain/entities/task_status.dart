@@ -1,7 +1,3 @@
-/// Status of a patient task, shaped after the FHIR Task lifecycle.
-///
-/// A pure domain entity: no serialization concerns live here. Wire-name
-/// mapping is the data layer's job (see `PatientTaskModel`).
 enum TaskStatus {
   requested,
   inProgress,
@@ -9,7 +5,7 @@ enum TaskStatus {
   completed,
   cancelled;
 
-  /// Statuses this one may legally transition to. The single source of truth
+  /// The single source of truth
   /// for the state machine: transition validation and the UI's action buttons
   /// both derive from it.
   Set<TaskStatus> get allowedNext => switch (this) {

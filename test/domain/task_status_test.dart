@@ -2,8 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:patient_task_manager/domain/entities/task_status.dart';
 
 void main() {
-  // The transition table from the spec, restated independently of the
-  // implementation so the test verifies the code against the spec.
   const allowed = <TaskStatus, Set<TaskStatus>>{
     TaskStatus.requested: {TaskStatus.inProgress, TaskStatus.cancelled},
     TaskStatus.inProgress: {
