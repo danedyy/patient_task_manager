@@ -84,7 +84,7 @@ The code is organised in **layers**, and dependencies only ever point **inward**
 (`presentation → domain ← data`). Inner layers (domain) know nothing about outer
 ones (UI, database, network). This is what makes pieces swappable and testable.
 
-Layered architecture: presentation depends on domain, data implements domain, and the reactive fold stream from the Drift tables is the UI source of truth.
+![Layered architecture: presentation depends on domain, data implements domain, and the reactive fold stream from the Drift tables is the UI source of truth.](architecture_diagram.png)
 
 **What each layer is for**
 
@@ -174,7 +174,7 @@ The displayed list = **confirmed rows with the pending changes layered on top**.
 call that layering the **fold**. Crucially, the optimistic result is *computed on
 the fly*, never saved as a third copy, so "undo" is just removing a queued item.
 
-Offline sync data flow: the UI list is a reactive fold of ConfirmedTasks and PendingOperations. (A) a write only enqueues; (B) the sync engine drains to the server (success / transient retry / 409 conflict); (C) server pushes only ever touch the confirmed layer; (D) an illegal move on reconnect surfaces a SyncRejection and the fold drops the op.
+![Offline sync data flow: the UI list is a reactive fold of ConfirmedTasks and PendingOperations. (A) a write only enqueues; (B) the sync engine drains to the server (success / transient retry / 409 conflict); (C) server pushes only ever touch the confirmed layer; (D) an illegal move on reconnect surfaces a SyncRejection and the fold drops the op.](data_flow_sync_diagram.png)
 
 **(A) You make a change** → `repository.updateStatus(taskId, next)`:
 it checks the move is legal (against the *folded* current status, so several quick

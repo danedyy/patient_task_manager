@@ -17,11 +17,17 @@ jobs:
           path: ~/fvm
           key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
 
-      # Install fvm, then the SDK version from .fvmrc, so CI uses the same
-      # toolchain source of truth as local dev (no version duplicated here).
-      - run: |
+      # Install fvm and put it on PATH for later steps. GITHUB_PATH only affects
+      # subsequent steps, so the SDK install lives in its own step below.
+      - name: Install fvm
+        run: |
           curl -fsSL https://fvm.app/install.sh | bash
-          fvm install
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      # Install the SDK version from .fvmrc, so CI uses the same toolchain source
+      # of truth as local dev (no version duplicated here).
+      - name: Install pinned Flutter SDK
+        run: fvm install
 
       - run: fvm flutter pub get
       
