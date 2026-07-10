@@ -1,10 +1,9 @@
 # Patient Task Manager
 
-A small Flutter app for managing patient tasks (e.g. "Draw blood sample →
-In progress → Completed"). Its point is **offline-first sync**: you can change a
-task's status with no network, see the change instantly, and the app quietly
-syncs it to the server in the background, retrying, resolving conflicts, and
-rolling back if the server ultimately rejects it.
+A small Flutter application for managing patient tasks, such as progressing a task from **“Draw blood sample”** to **“In progress”** and then **“Completed.”**
+
+The application demonstrates an offline-first synchronisation model: task statuses can be updated without a network connection, and changes appear in the UI immediately. The application then synchronises those changes with the server in the background, retrying failed requests, resolving conflicts, and rolling back local changes when the server ultimately rejects them.
+
 
 Built with **Flutter + Bloc + Drift**.
 
@@ -27,15 +26,10 @@ fvm flutter test                                               # run the full te
 
 `makefile` shortcuts: `make fresh` (clean + pub get), `make build-runner`, `make lint`.
 
-> **Why** `build_runner`**?** Some classes are partly *generated*: Drift generates the
-> database code, and Freezed generates value-type boilerplate (equality,
-> `copyWith`, JSON). You run `build_runner` once to (re)generate the `*.g.dart` /
-> `*.freezed.dart` files.
+> **Why is `build_runner` required?**
+> Some classes rely on generated code. Drift generates database-related code, while Freezed generates value-type boilerplate such as equality, `copyWith`, and JSON serialization. Running `build_runner` regenerates the corresponding `*.g.dart` and `*.freezed.dart` files.
 
-The app starts with 50 seeded tasks and a **mock server** that deliberately fails
-~15% of calls, so you can actually see the interesting behaviour: the "Syncing…"
-badge, automatic retries with backoff, and, when a queued change is no longer
-legal, a rollback with a snackbar.
+The application starts with 50 seeded tasks and uses a mock server that deliberately fails approximately 15% of requests. This makes the synchronisation behaviour observable, including the **“Syncing…”** badge, automatic retries with backoff, and rollback with a snackbar when a queued change is no longer valid.
 
 > **Heads-up:** a few seconds after launch, tasks will start changing status **on
 > their own**, every ~5 seconds. That is intentional: the mock server simulates
@@ -48,35 +42,27 @@ legal, a rollback with a snackbar.
 > red **● Offline**. Change a few task statuses and they queue up in `PendingOperations`
 > (the "Syncing…" badge count climbs); turn the network back on (badge → green **●
 > Online**) and the queue drains, followed by one authoritative refetch that reconciles
-> anything that changed while you were away. Sync is gated on real device connectivity
+> anything that changed while away. Sync is gated on real device connectivity
 > (see ADR-006/007), so no special build or flag is needed.
 
 ---
 
-
-
 ## The core idea
 
-When you tap "Start" on a task, here is what happens:
+When **“Start”** is selected for a task, the following sequence occurs:
 
-1. **Instantly (no network):** the app records your intent in a local queue and the
-  UI updates immediately. This is called an **optimistic update**: we optimistically
-   assume the server will accept it, so we don't make you wait.
-2. **In the background:** a *sync engine* takes that queued change and sends it to
-  the server. If the network hiccups, it retries with increasing delays. A small
-   "Syncing…" badge shows while there's unsent work.
-3. **If the server accepts:** the local "confirmed" copy is updated and the queued
-  change disappears. The UI doesn't visibly change; your optimistic guess was
-   right.
-4. **If the server rejects it** (someone else already moved the task somewhere that
-  makes your change illegal): the app drops the queued change, the task snaps back
-   to the server's truth, and you get a snackbar explaining why.
+1. **Immediate local update:** The application records the intended status change in a local queue and updates the UI without making a network request. This is an **optimistic update**, meaning the interface temporarily assumes that the server will accept the change.
+
+2. **Background synchronisation:** The sync engine processes the queued change and sends it to the server. Transient failures are retried using increasing backoff intervals. A **“Syncing…”** badge remains visible while unsynchronised changes are pending.
+
+3. **Server acceptance:** The confirmed local state is updated and the corresponding queue entry is removed. No visible UI change is required because the optimistic state already matches the accepted server state.
+
+4. **Server rejection:** If the change is no longer valid, for example because another clinician has already moved the task to an incompatible state, the queue entry is removed, the task reverts to the confirmed server state, and a snackbar explains the reason for the rollback.
+
 
 Everything below is the machinery that makes those four steps correct and testable.
 
 ---
-
-
 
 ## Architecture
 
@@ -101,11 +87,9 @@ states; widgets just render state and dispatch events.
 
 **Three "interfaces" (contracts) make things swappable:**
 
-- `PatientTaskRepository`: the only thing the Bloc talks to for data. Today it's
-backed by Drift; you could swap in a pure-HTTP version without touching the Bloc.
-- `PatientTaskApi`: the server contract. Today it's an in-memory `MockPatientTaskApi`;
-a real HTTP client would drop in behind the same interface.
-- `ConnectivityMonitor` (in `core/connectivity/`): the device's online/offline signal,
+* `PatientTaskRepository`: The sole data-access dependency used by the Bloc. The current implementation is backed by Drift, but it could be replaced with a pure HTTP implementation without modifying the Bloc.
+* `PatientTaskApi`: Defines the server contract. The current implementation uses an in-memory `MockPatientTaskApi`, while a real HTTP client could be introduced behind the same interface.
+* `ConnectivityMonitor` (in `core/connectivity/`): the device's online/offline signal,
 in one place (a **required** dependency, see ADR-006/007). It exposes a seeded
 `connectivity` stream (the app-facing signal) plus the raw `onStatusChange` / `isOnline()`
 pieces, and feeds **everyone**: the `SyncEngine` (gates the drain), the `PatientTaskBloc`
@@ -120,8 +104,6 @@ pass a fake (or `implements ConnectivityMonitor` for a simple bool-stream stub).
 > callers don't care if it's a DB, an API, or a fake.
 
 ---
-
-
 
 ## Domain model & FHIR alignment
 
@@ -160,15 +142,12 @@ shifts the wire contract.
 
 ---
 
-
-
 ## How offline sync works (the heart of the app)
 
-There are **two local tables**, and the list you see is *computed* from both:
+The local database contains **two tables**, and the displayed task list is computed by combining data from both:
 
-- `ConfirmedTasks`: the last thing we know the **server** agreed to.
-- `PendingOperations`: a **queue** of local changes you've made that haven't been
-accepted yet (each is one "move task X from status A to B").
+* `ConfirmedTasks`: the last thing we know the **server** agreed to.
+* `PendingOperations`: A queue of local changes that have not yet been accepted by the server. Each entry represents a single transition, such as moving task X from status A to status B.
 
 The displayed list = **confirmed rows with the pending changes layered on top**. We
 call that layering the **fold**. Crucially, the optimistic result is *computed on
@@ -176,11 +155,8 @@ the fly*, never saved as a third copy, so "undo" is just removing a queued item.
 
 ![Offline sync data flow: the UI list is a reactive fold of ConfirmedTasks and PendingOperations. (A) a write only enqueues; (B) the sync engine drains to the server (success / transient retry / 409 conflict); (C) server pushes only ever touch the confirmed layer; (D) an illegal move on reconnect surfaces a SyncRejection and the fold drops the op.](data_flow_sync_diagram.png)
 
-**(A) You make a change** → `repository.updateStatus(taskId, next)`:
-it checks the move is legal (against the *folded* current status, so several quick
-changes chain correctly), adds one item to the queue, and returns. There is **no
-network call**. Because the queue changed, the fold recomputes and the UI shows your
-change.
+**(A) A status change is made** → `repository.updateStatus(taskId, next)`:
+The repository validates the transition against the current folded status, allowing multiple rapid changes to be chained correctly. It then appends a single item to the change queue and returns without making a network request. Because the queue has changed, the folded state is recomputed and the UI immediately reflects the local update.
 
 **(B) The sync engine drains the queue** → one change at a time, oldest first
 (`SyncEngine`), **only while the device is online** (draining pauses when there's no
@@ -197,13 +173,12 @@ confirmed.
 - **Offline** → the change stays queued; nothing is sent until the device is back
 online, at which point the queue drains automatically.
 
-**(C) The server pushes updates** (another clinician changed something) →
-`taskUpdates` → **while online**, we save it into `ConfirmedTasks`. Because your queued
-changes live in a *separate* table and are folded *on top*, a server push can never
-overwrite your un-synced work. **While offline** these live pushes are dropped (you
-have no link to receive them); on reconnect the repository runs one authoritative
-`refresh()` to catch the confirmed layer up in a single bounded fetch, rather than
-replaying a backlog of stale deltas (see ADR-007).
+**(C) The server pushes updates**, for example, when another clinician makes a change:
+
+While the application is online, updates received through `taskUpdates` are persisted to `ConfirmedTasks`. Queued local changes are stored in a separate table and applied as an overlay, so a server update cannot overwrite unsynchronised local work.
+
+While the application is offline, live updates are not received because no active connection exists. After connectivity is restored, the repository performs a single authoritative `refresh()` to bring the confirmed layer up to date through a bounded fetch, rather than replaying a backlog of potentially stale deltas (see ADR-007).
+
 
 **(D) A queued change is rolled back** → when the conflict re-validation in (B) finds
 the move is *no longer legal* against the server's new state, the item is dropped from
@@ -219,8 +194,6 @@ ADR-002).
 > out-of-order messages (an old update can't clobber a newer one).
 
 ---
-
-
 
 ## Architecture Decision Records (ADRs)
 
@@ -412,7 +385,7 @@ offline-to-online transition triggers a drain that flushes them.
 stay pure Dart (offline → enqueue → nothing sent → online → drains).
 - **Connectivity is a hint, retries are the guarantee.** The plugin reports *link
 presence*, not whether the server is actually reachable, so it is only a fast-path
-"don't even try" signal. The `TransientException` + backoff path (ADR unchanged)
+"don't even try" signal. The `TransientException` + backoff path
 remains the real proof a change reached the server.
 
 **Consequence.** To watch the offline queue on a device, just toggle **airplane
@@ -427,8 +400,6 @@ is test scaffolding bolted onto the app rather than a real feature, and it does 
 reflect true device state.
 - **Reachability ping to the backend**: more accurate than link presence, but needs
 a real endpoint and adds its own failure modes; deferred until there is a real API.
-
-
 
 ### ADR-007: Offline is symmetric; reconnect reconciles by refetch
 
@@ -479,19 +450,6 @@ state, not a phantom. Because the mock advances tasks on a timer, a legitimate c
 snackbar can still appear after a long offline window; that is correct multi-client
 behaviour, not the earlier bug.
 
-**Related refactors in this change.**
-
-- `ConnectivityMonitor` moved from `data/sync/` to `core/connectivity/`: it is now
-consumed by the sync engine (gating), the repository (gating), and the UI, so it is a
-shared core primitive rather than a sync-internal detail. It also **owns the seeded**
-`connectivity` **stream** (the seed/merge that briefly lived on the repository), so nothing
-re-implements it: the repository just gates on `isOnline()`, and the two blocs subscribe
-to `ConnectivityMonitor.connectivity` directly.
-- The app bar shows a live **online/offline badge** fed by a dedicated
-`ConnectivityCubit` (a `Cubit<bool>` over `ConnectivityMonitor.connectivity`), kept
-separate from `PatientTaskBloc` so the signal is accurate on every screen and carries no
-task-list carry-through plumbing.
-
 **Alternatives considered.**
 
 - **Pause the inbound subscription, replay on resume:** minimal, and fine for the
@@ -500,8 +458,6 @@ periodic mock (pausing stops it drifting), but fragile against a real transport
 drop + refetch was chosen.
 - **Keep inbound live while offline:** rejected: "offline" should mean no server writes
 reach local state.
-
-
 
 ### ADR-008: Server-side pagination as progressive cache backfill
 
@@ -538,7 +494,7 @@ stable ordering the sort was originally there to provide, so rows don't jump as 
 - `refresh()` (including the reconnect refetch) resets the cursor to page 0, so a refresh
 after paging deep collapses back to the first page. Acceptable "pull-to-refresh returns to
 top" behaviour; noted rather than hidden.
-- At real scale you would push the ordering + windowing into the query itself
+- At real scale pushing the ordering + windowing into the query itself
 (`ORDER BY id LIMIT/OFFSET` over a `watch`) rather than sorting the folded list in Dart, so
 sort and pagination share one source of truth.
 
@@ -550,8 +506,6 @@ working offline, breaking the whole offline-first premise.
 UX and the `droppable` + cancellation story is the part being tested.
 
 ---
-
-
 
 ## Testing
 
@@ -572,8 +526,6 @@ No test waits on the real wall clock.
 
 ---
 
-
-
 ## Scaling notes
 
 - **10k+ tasks:** don't fold the whole table; page the local query (`LIMIT/OFFSET`
@@ -588,8 +540,6 @@ when the app is backgrounded.
 
 ---
 
-
-
 ## What I'd do with another 2 days
 
 - Per-task **parallel** sync (currently one change at a time, globally).
@@ -601,8 +551,6 @@ See the "Known limitation" note under ADR-002.
 - Editing beyond status; golden (screenshot) tests; a real DI container if the graph
 grows; true background sync.
 
-
-
 ## Deliberate cuts (and why they're safe)
 
 - **Widget tests kept to two**: the two that verify behaviour living *only* in the UI
@@ -613,8 +561,6 @@ tests.
 is correctness-neutral to defer.
 
 ---
-
-
 
 ## Toolchain notes
 
@@ -631,8 +577,6 @@ deliberate, scoped workaround (documented so it doesn't look accidental).
 `freezed_annotation`'s re-export, so we only declare what we actually import.
 
 ---
-
-
 
 ## Glossary
 
