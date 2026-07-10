@@ -2,37 +2,62 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: Analyze and test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      # Cache the fvm-managed Flutter SDK, keyed on the pinned version in .fvmrc.
-      - uses: actions/cache@v4
+      - name: Cache FVM and Flutter SDK
+        uses: actions/cache@v4
         with:
-          path: ~/fvm
-          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+          path: ~/.fvm
+          key: ${{ runner.os }}-fvm-${{ hashFiles('.fvmrc') }}
+          restore-keys: |
+            ${{ runner.os }}-fvm-
 
-      # Install fvm and put it on PATH for later steps. GITHUB_PATH only affects
-      # subsequent steps, so the SDK install lives in its own step below.
-      - name: Install fvm
+      - name: Install FVM
+        shell: bash
         run: |
           curl -fsSL https://fvm.app/install.sh | bash
-          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.fvm/bin" >> "$GITHUB_PATH"
 
-      # Install the SDK version from .fvmrc, so CI uses the same toolchain source
-      # of truth as local dev (no version duplicated here).
       - name: Install pinned Flutter SDK
         run: fvm install
 
-      - run: fvm flutter pub get
-      
-      - run: fvm dart run build_runner build --delete-conflicting-outputs
+      - name: Show Flutter version
+        run: fvm flutter --version
 
-      - run: fvm flutter analyze
+      - name: Install dependencies
+        run: fvm flutter pub get
 
-      - run: fvm flutter test
+      - name: Generate code
+        run: >
+          fvm dart run build_runner build
+          --delete-conflicting-outputs
+
+      - name: Verify formatting
+        run: fvm dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze project
+        run: fvm flutter analyze
+
+      - name: Run tests
+        run: fvm flutter test
